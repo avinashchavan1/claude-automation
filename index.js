@@ -1,15 +1,15 @@
-// Browser automation: log into Claude.ai, open a new chat, send "hello",
-// then screenshot the result. Uses playwright-extra + stealth to reduce
-// bot detection. Credentials come from env vars CLAUDE_EMAIL / CLAUDE_PASSWORD.
+// Browser automation: reuse a saved Claude.ai session, open a new chat, send
+// "hello", and screenshot the result. No login happens here — the session is
+// loaded from auth.json (created locally by login.js). Uses playwright-extra +
+// stealth to reduce bot detection. Retries up to 3 times.
 
+const fs = require('fs');
 const { chromium } = require('playwright-extra');
 const stealth = require('puppeteer-extra-plugin-stealth')();
 
 chromium.use(stealth);
 
-const EMAIL = process.env.CLAUDE_EMAIL;
-const PASSWORD = process.env.CLAUDE_PASSWORD;
-
+const AUTH_PATH = 'auth.json';
 const MAX_ATTEMPTS = 3;
 const SCREENSHOT_PATH = 'screenshot.png';
 const NAV_TIMEOUT = 60_000;
@@ -19,8 +19,11 @@ function sleep(ms) {
 }
 
 async function run() {
-  if (!EMAIL || !PASSWORD) {
-    throw new Error('Missing CLAUDE_EMAIL or CLAUDE_PASSWORD environment variables.');
+  if (!fs.existsSync(AUTH_PATH)) {
+    throw new Error(
+      `Missing ${AUTH_PATH}. Run "node login.js" locally to create it, or ` +
+        'provide the CLAUDE_AUTH secret (the workflow decodes it to auth.json).'
+    );
   }
 
   const browser = await chromium.launch({
@@ -29,6 +32,7 @@ async function run() {
   });
 
   const context = await browser.newContext({
+    storageState: AUTH_PATH,
     viewport: { width: 1280, height: 800 },
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -41,50 +45,22 @@ async function run() {
   page.setDefaultNavigationTimeout(NAV_TIMEOUT);
 
   try {
-    // 1. Go to login page.
-    await page.goto('https://claude.ai/login', { waitUntil: 'domcontentloaded' });
-
-    // 2. Enter email. The login form uses an email field; some flows show a
-    //    "Continue with email" step first.
-    const emailInput = page.locator('input[type="email"], input[name="email"]').first();
-    await emailInput.waitFor({ state: 'visible' });
-    await emailInput.fill(EMAIL);
-
-    // Click the continue/submit button after entering email.
-    const continueBtn = page
-      .getByRole('button', { name: /continue|next|log ?in|sign ?in/i })
-      .first();
-    if (await continueBtn.count()) {
-      await continueBtn.click().catch(() => {});
-    } else {
-      await emailInput.press('Enter');
-    }
-
-    // 3. Enter password once the field appears.
-    const passwordInput = page.locator('input[type="password"]').first();
-    await passwordInput.waitFor({ state: 'visible' });
-    await passwordInput.fill(PASSWORD);
-
-    const submitBtn = page
-      .getByRole('button', { name: /continue|log ?in|sign ?in|submit/i })
-      .first();
-    if (await submitBtn.count()) {
-      await submitBtn.click().catch(() => {});
-    } else {
-      await passwordInput.press('Enter');
-    }
-
-    // 4. Wait for the app to load after login.
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await sleep(3000);
-
-    // 5. Open a fresh chat directly.
+    // Open a fresh chat directly using the saved session.
     await page.goto('https://claude.ai/new', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle').catch(() => {});
     await sleep(3000);
 
-    // 6. Find the message input. Claude's composer is a contenteditable div
-    //    (sometimes a textarea), so try several selectors.
+    // Detect an expired/invalid session: if we got bounced to login, the
+    // saved state is stale and must be regenerated with login.js.
+    if (/\/login/.test(page.url())) {
+      throw new Error(
+        'Session expired — redirected to login. Re-run "node login.js" and ' +
+          'update the CLAUDE_AUTH secret.'
+      );
+    }
+
+    // Find the message input. Claude's composer is a contenteditable div
+    // (sometimes a textarea), so try several selectors.
     const composer = page
       .locator(
         [
@@ -102,10 +78,10 @@ async function run() {
       await composer.type('hello');
     });
 
-    // 7. Submit with Enter.
+    // Submit with Enter.
     await composer.press('Enter');
 
-    // 8. Give the response a moment to start, then screenshot.
+    // Give the response a moment to start, then screenshot.
     await sleep(5000);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     console.log(`Message sent. Screenshot saved to ${SCREENSHOT_PATH}`);

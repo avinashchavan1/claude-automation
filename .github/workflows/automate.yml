@@ -25,10 +25,17 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run automation script
+      - name: Restore Claude session from secret
         env:
-          CLAUDE_EMAIL: ${{ secrets.CLAUDE_EMAIL }}
-          CLAUDE_PASSWORD: ${{ secrets.CLAUDE_PASSWORD }}
+          CLAUDE_AUTH: ${{ secrets.CLAUDE_AUTH }}
+        run: |
+          if [ -z "$CLAUDE_AUTH" ]; then
+            echo "CLAUDE_AUTH secret is empty. Run login.js locally and add it." >&2
+            exit 1
+          fi
+          echo "$CLAUDE_AUTH" | base64 -d > auth.json
+
+      - name: Run automation script
         run: node index.js
 
       - name: Upload screenshot artifact

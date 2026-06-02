@@ -1,4 +1,5 @@
 node_modules/
 screenshot.png
+auth.json
 .env
 npm-debug.log*
