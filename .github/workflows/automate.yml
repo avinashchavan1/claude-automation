@@ -1,0 +1,40 @@
+name: Claude Automation
+
+on:
+  schedule:
+    # Every 4 hours (at minute 0). Times are UTC.
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run automation script
+        env:
+          CLAUDE_EMAIL: ${{ secrets.CLAUDE_EMAIL }}
+          CLAUDE_PASSWORD: ${{ secrets.CLAUDE_PASSWORD }}
+        run: node index.js
+
+      - name: Upload screenshot artifact
+        if: always() # upload even if the script failed, for debugging
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot
+          path: screenshot.png
+          if-no-files-found: warn
