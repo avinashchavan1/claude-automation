@@ -81,10 +81,38 @@ async function run() {
     // Submit with Enter.
     await composer.press('Enter');
 
-    // Give the response a moment to start, then screenshot.
+    // Verify the message actually sent. Two independent signals:
+    //   1) URL becomes a real conversation (claude.ai/chat/<id>), and/or
+    //   2) "hello" shows up on the page as a sent message bubble.
+    // If neither happens, throw so the retry loop kicks in.
+    let sent = false;
+    try {
+      await page.waitForURL(/\/chat\//, { timeout: 20_000 });
+      sent = true;
+    } catch (_) {
+      // URL didn't change (or already on a chat); fall back to text check.
+    }
+    if (!sent) {
+      try {
+        await page.getByText('hello', { exact: false }).first().waitFor({
+          state: 'visible',
+          timeout: 20_000,
+        });
+        sent = true;
+      } catch (_) {
+        // still nothing
+      }
+    }
+    if (!sent) {
+      // Screenshot the failure state for debugging before throwing.
+      await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }).catch(() => {});
+      throw new Error('Could not confirm the message was sent (no chat URL, no "hello" on page).');
+    }
+
+    // Give the response a moment to start, then screenshot proof.
     await sleep(5000);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
-    console.log(`Message sent. Screenshot saved to ${SCREENSHOT_PATH}`);
+    console.log(`Message confirmed sent (url: ${page.url()}). Screenshot saved to ${SCREENSHOT_PATH}`);
   } finally {
     await context.close();
     await browser.close();
