@@ -144,7 +144,9 @@ A `screenshot.png` will appear in the folder.
 
 ## Notes & caveats
 
-- **Session expiry:** The saved session is the weak point. It lasts days to weeks, then runs fail with "Session expired — redirected to login". Fix = re-run `node login.js` and update the `CLAUDE_AUTH` secret. There's no way around re-doing the OTP step periodically.
+- **Same chat each run:** The script posts into one fixed conversation instead of creating a new chat every time. It's set in `index.js` (`CHAT_URL`); override per-run with the `CHAT_URL` env var if you want a different conversation.
+- **Expiry notification:** When the session expires, the workflow automatically opens a GitHub issue titled "⚠️ Claude session expired — action needed" (reusing one open issue rather than spamming). GitHub emails you since you own the repo. Make sure repo notifications/email are on.
+- **Session expiry:** The saved session is the weak point. It lasts days to weeks, then runs fail with "Session expired — redirected to login" and you get the issue above. Fix = re-run `node login.js` and update the `CLAUDE_AUTH` secret. There's no way around re-doing the OTP step periodically.
 - **Secret = full account access:** `CLAUDE_AUTH` is a live login session. Anyone with it is logged into your account. Keep the repo **private** and never commit `auth.json`.
 - **Terms of Service:** Automating claude.ai may conflict with its Terms of Service. Use on an account you own, at your own risk.
 - **Selectors may change:** Claude.ai's HTML can change at any time, breaking the composer selector in `index.js`. If runs fail, check the screenshot artifact and update the selectors.
