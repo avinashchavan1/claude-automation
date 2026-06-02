@@ -13,6 +13,14 @@ const AUTH_PATH = 'auth.json';
 const MAX_ATTEMPTS = 3;
 const SCREENSHOT_PATH = 'screenshot.png';
 const NAV_TIMEOUT = 60_000;
+// Reuse one existing conversation instead of creating a new chat every run.
+// Override with the CHAT_URL env var if you want a different conversation.
+const CHAT_URL =
+  process.env.CHAT_URL ||
+  'https://claude.ai/chat/6ddfce18-f987-4b67-ae9a-334be6497c79';
+// Marker the workflow looks for to tell "session expired" apart from other
+// failures (so it can open a GitHub issue to notify you).
+const EXPIRED_FLAG = 'session-expired.flag';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,14 +53,16 @@ async function run() {
   page.setDefaultNavigationTimeout(NAV_TIMEOUT);
 
   try {
-    // Open a fresh chat directly using the saved session.
-    await page.goto('https://claude.ai/new', { waitUntil: 'domcontentloaded' });
+    // Open the existing conversation using the saved session.
+    await page.goto(CHAT_URL, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle').catch(() => {});
     await sleep(3000);
 
     // Detect an expired/invalid session: if we got bounced to login, the
-    // saved state is stale and must be regenerated with login.js.
+    // saved state is stale and must be regenerated with login.js. Drop a
+    // marker file so the workflow can notify via a GitHub issue.
     if (/\/login/.test(page.url())) {
+      fs.writeFileSync(EXPIRED_FLAG, 'Session expired at ' + new Date().toISOString() + '\n');
       throw new Error(
         'Session expired — redirected to login. Re-run "node login.js" and ' +
           'update the CLAUDE_AUTH secret.'
@@ -72,6 +82,16 @@ async function run() {
       )
       .first();
     await composer.waitFor({ state: 'visible' });
+
+    // Because we reuse the SAME chat every run, the conversation already
+    // contains old "hello" messages. Count them before sending, then confirm
+    // the count went up — that proves THIS run's message actually posted.
+    const helloMsg = page.getByText('hello', { exact: true });
+    let before = 0;
+    try {
+      before = await helloMsg.count();
+    } catch (_) {}
+
     await composer.click();
     await composer.fill('hello').catch(async () => {
       // contenteditable may not support fill(); type instead.
@@ -81,38 +101,33 @@ async function run() {
     // Submit with Enter.
     await composer.press('Enter');
 
-    // Verify the message actually sent. Two independent signals:
-    //   1) URL becomes a real conversation (claude.ai/chat/<id>), and/or
-    //   2) "hello" shows up on the page as a sent message bubble.
-    // If neither happens, throw so the retry loop kicks in.
+    // Wait until a new "hello" bubble appears (count increased by 1).
     let sent = false;
     try {
-      await page.waitForURL(/\/chat\//, { timeout: 20_000 });
+      await page.waitForFunction(
+        ({ n }) => {
+          const nodes = Array.from(document.querySelectorAll('div, p, span'));
+          const count = nodes.filter((el) => el.textContent && el.textContent.trim() === 'hello').length;
+          return count > n;
+        },
+        { n: before },
+        { timeout: 20_000 }
+      );
       sent = true;
     } catch (_) {
-      // URL didn't change (or already on a chat); fall back to text check.
+      // count didn't grow
     }
-    if (!sent) {
-      try {
-        await page.getByText('hello', { exact: false }).first().waitFor({
-          state: 'visible',
-          timeout: 20_000,
-        });
-        sent = true;
-      } catch (_) {
-        // still nothing
-      }
-    }
+
     if (!sent) {
       // Screenshot the failure state for debugging before throwing.
       await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }).catch(() => {});
-      throw new Error('Could not confirm the message was sent (no chat URL, no "hello" on page).');
+      throw new Error('Could not confirm the message was sent (no new "hello" message appeared).');
     }
 
     // Give the response a moment to start, then screenshot proof.
     await sleep(5000);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
-    console.log(`Message confirmed sent (url: ${page.url()}). Screenshot saved to ${SCREENSHOT_PATH}`);
+    console.log(`Message confirmed sent in ${page.url()}. Screenshot saved to ${SCREENSHOT_PATH}`);
   } finally {
     await context.close();
     await browser.close();
@@ -120,6 +135,9 @@ async function run() {
 }
 
 async function main() {
+  // Clear any stale expiry marker from a previous run.
+  if (fs.existsSync(EXPIRED_FLAG)) fs.unlinkSync(EXPIRED_FLAG);
+
   let lastError;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {

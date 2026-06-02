@@ -6,6 +6,10 @@ on:
     - cron: "0 */4 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab
 
+permissions:
+  contents: read
+  issues: write # needed to open an issue when the session expires
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -45,3 +49,30 @@ jobs:
           name: screenshot
           path: screenshot.png
           if-no-files-found: warn
+
+      - name: Notify on expired session
+        # Runs only if the script left the expiry marker. Opens a GitHub issue
+        # (GitHub emails you since you own the repo). Reuses one open issue
+        # instead of spamming a new one every 4 hours.
+        if: always() && hashFiles('session-expired.flag') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="⚠️ Claude session expired — action needed"
+          BODY=$(printf '%s\n' \
+            "The automation could not log in: the saved Claude session expired." \
+            "" \
+            "**Fix:** run \`node login.js\` locally, then update the secret:" \
+            "\`\`\`" \
+            "base64 -i auth.json | gh secret set CLAUDE_AUTH --repo $REPO" \
+            "\`\`\`" \
+            "" \
+            "Failing run: $RUN_URL")
+          EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title $TITLE" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY"
+          fi
