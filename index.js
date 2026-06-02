@@ -63,6 +63,7 @@ async function run() {
     // marker file so the workflow can notify via a GitHub issue.
     if (/\/login/.test(page.url())) {
       fs.writeFileSync(EXPIRED_FLAG, 'Session expired at ' + new Date().toISOString() + '\n');
+      await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }).catch(() => {});
       throw new Error(
         'Session expired — redirected to login. Re-run "node login.js" and ' +
           'update the CLAUDE_AUTH secret.'
