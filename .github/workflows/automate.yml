@@ -1,8 +1,13 @@
 name: Claude Automation
 
 on:
+  # Reliable trigger: an external scheduler (cron-job.org) hits the GitHub
+  # repository_dispatch API every 3 hours. GitHub honors dispatch immediately,
+  # unlike the built-in cron which is best-effort and often delayed/skipped.
+  repository_dispatch:
+    types: [run-automation]
   schedule:
-    # Every 3 hours (at minute 0). Times are UTC.
+    # Kept as a backup. Best-effort: may be delayed or skipped by GitHub.
     - cron: "0 */3 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab
 
