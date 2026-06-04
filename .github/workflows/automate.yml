@@ -2,8 +2,8 @@ name: Claude Automation
 
 on:
   schedule:
-    # Every 4 hours (at minute 0). Times are UTC.
-    - cron: "0 */4 * * *"
+    # Every 3 hours (at minute 0). Times are UTC.
+    - cron: "0 */3 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab
 
 permissions:
