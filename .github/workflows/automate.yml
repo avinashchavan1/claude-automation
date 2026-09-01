@@ -77,7 +77,10 @@ jobs:
             "Failing run: $RUN_URL")
           EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title $TITLE" --json number --jq '.[0].number')
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+            # Issue already open from a prior failed run — stay silent to avoid
+            # emailing on every run while the session stays expired. One issue,
+            # one email; the open issue is the standing reminder.
+            echo "Expiry issue #$EXISTING already open — skipping comment to avoid email spam."
           else
             gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY"
           fi

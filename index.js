@@ -158,6 +158,19 @@ async function main() {
   }
   console.error('All attempts failed.');
   console.error(lastError);
+
+  // Expired session is an expected, recurring state (Claude sessions age out
+  // ~monthly and can only be refreshed with an OTP). Treat it as a soft
+  // failure: the workflow's notify step opens ONE GitHub issue, and we exit 0
+  // so GitHub does not email a "run failed" alert on every run until it's
+  // refreshed. Any OTHER failure still exits 1 (red run + failure email).
+  if (fs.existsSync(EXPIRED_FLAG)) {
+    console.error(
+      'Cause: expired session (expected). Exiting 0 — see the open GitHub issue to refresh.'
+    );
+    process.exit(0);
+  }
+
   process.exit(1);
 }
 
