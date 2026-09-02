@@ -8,7 +8,8 @@ on:
     types: [run-automation]
   schedule:
     # Kept as a backup. Best-effort: may be delayed or skipped by GitHub.
-    - cron: "0 */12 * * *"
+    # Every 3 hours — the app's core cadence. Do not change.
+    - cron: "0 */3 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab
 
 permissions:
