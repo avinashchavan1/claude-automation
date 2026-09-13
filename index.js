@@ -82,7 +82,26 @@ async function run() {
         ].join(', ')
       )
       .first();
-    await composer.waitFor({ state: 'visible' });
+
+    // In CI the chat page sometimes loads slowly or lands in a half-rendered
+    // state, so the composer isn't visible in time. Wait; if it never shows,
+    // reload once and wait again before giving up — this clears most flaky
+    // "Timeout exceeded" failures where the first paint just stalled.
+    try {
+      await composer.waitFor({ state: 'visible', timeout: 45_000 });
+    } catch (_) {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await sleep(3000);
+      if (/\/login/.test(page.url())) {
+        fs.writeFileSync(EXPIRED_FLAG, 'Session expired at ' + new Date().toISOString() + '\n');
+        throw new Error(
+          'Session expired — redirected to login. Re-run "node login.js" and ' +
+            'update the CLAUDE_AUTH secret.'
+        );
+      }
+      await composer.waitFor({ state: 'visible', timeout: 45_000 });
+    }
 
     // Because we reuse the SAME chat every run, the conversation already
     // contains old "hello" messages. Count them before sending, then confirm
@@ -129,6 +148,12 @@ async function run() {
     await sleep(5000);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     console.log(`Message confirmed sent in ${page.url()}. Screenshot saved to ${SCREENSHOT_PATH}`);
+  } catch (err) {
+    // Capture whatever is on screen for ANY failure (e.g. composer never
+    // became visible) so the uploaded artifact shows the page state instead
+    // of failing blind. Best-effort; never mask the original error.
+    await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }).catch(() => {});
+    throw err;
   } finally {
     await context.close();
     await browser.close();
