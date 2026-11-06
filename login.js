@@ -58,10 +58,17 @@ async function isLoggedIn(context) {
     process.exit(1);
   }
 
-  // Small settle so localStorage is fully populated, then save.
+  // Small settle so cookies are fully set, then save.
   await sleep(1500);
-  await context.storageState({ path: AUTH_PATH });
-  console.log(`Saved session to ${AUTH_PATH}`);
+  const state = await context.storageState();
+
+  // Keep ONLY cookies — the session (sessionKey) is cookie-based. claude.ai's
+  // localStorage holds ~450KB of cache/telemetry that balloons auth.json past
+  // GitHub's 48KB secret limit (HTTP 422 "Value is too large"). Dropping it
+  // keeps the secret tiny and the session still restores fine.
+  state.origins = [];
+  fs.writeFileSync(AUTH_PATH, JSON.stringify(state));
+  console.log(`Saved session to ${AUTH_PATH} (cookies only, ${fs.statSync(AUTH_PATH).size} bytes)`);
 
   const b64 = fs.readFileSync(AUTH_PATH).toString('base64');
   console.log('\n--- Base64 for GitHub secret CLAUDE_AUTH (copy everything below) ---\n');
