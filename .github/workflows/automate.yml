@@ -79,12 +79,23 @@ jobs:
             "\`\`\`" \
             "" \
             "Failing run: $RUN_URL")
-          EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title $TITLE" --json number --jq '.[0].number')
-          if [ -n "$EXISTING" ]; then
-            # Issue already open from a prior failed run — stay silent to avoid
-            # emailing on every run while the session stays expired. One issue,
-            # one email; the open issue is the standing reminder.
-            echo "Expiry issue #$EXISTING already open — skipping comment to avoid email spam."
-          else
+          EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title $TITLE" --json number,updatedAt --jq '.[0] | "\(.number) \(.updatedAt)"')
+          NUM=$(echo "$EXISTING" | awk '{print $1}')
+          if [ -z "$NUM" ]; then
+            # First expiry — open the issue (one email).
             gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY"
+          else
+            # Issue already open. Re-comment (re-emails you) only if it hasn't
+            # been touched in >20h, so a prolonged outage nudges you about once
+            # a day instead of every run (every 3h = 8/day) or going silent for
+            # weeks. The open issue is the standing reminder between nudges.
+            UPD=$(echo "$EXISTING" | awk '{print $2}')
+            UPD_TS=$(date -u -d "$UPD" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$UPD" +%s)
+            AGE=$(( $(date -u +%s) - UPD_TS ))
+            if [ "$AGE" -gt 72000 ]; then
+              gh issue comment "$NUM" --repo "$REPO" --body "Still expired — $(date -u +%FT%TZ). $BODY"
+              echo "Re-nudged issue #$NUM (last update ${AGE}s ago)."
+            else
+              echo "Expiry issue #$NUM updated ${AGE}s ago (<20h) — staying silent."
+            fi
           fi
